@@ -1,46 +1,52 @@
-import os
 import pandas as pd
 import numpy as np
 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import GridSearchCV
-from sklearn import svm
+from sklearn.svm import SVC
+from sklearn.ensemble import RandomForestClassifier
+
+from utils import load_data
 
 
-def load_data():
-    X, y = [], []
-    for class_id, folder in enumerate(["baseline_AD_bin", "baseline_EMCI_bin", "baseline_NC_bin"]):
-        path = os.path.join("Connectomes", folder)
-        for filename in os.listdir(path):
-            if filename.endswith('.csv'):
-                data = pd.read_csv(os.path.join(path, filename), header=None)
-                X.append(np.array(data))
-                y.append(class_id)
-    return np.array(X), np.array(y)
-
-
-def classify(X, y):
-    knn = KNeighborsClassifier()
-    params = {
-        "n_neighbors": [5, 9, 11, 13, 15],
-        "weights": ["uniform", "distance"],
-        "metric": ["minkowski", "cosine", "euclidean"]
+def classify(X: np.ndarray, y: np.ndarray, method: str='knn')->None:
+    classifiers = {
+        'knn': (KNeighborsClassifier(), {
+            "n_neighbors": [5, 9, 11, 13, 15],
+            "weights": ["uniform", "distance"],
+            "metric": ["minkowski", "cosine", "euclidean"]
+        }),
+        'svc': (SVC(), {
+            "C": [0.1, 1, 10],
+            "kernel": ["linear", "rbf", "poly"],
+            "gamma": ["scale", "auto"],
+        }),
+        'random_forest': (RandomForestClassifier(), {
+            "n_estimators": [50, 100, 150],
+            "criterion": ["gini", "entropy"],
+            "max_depth": [None, 10, 20, 30]
+        })
     }
+
+    classifier, params = classifiers.get(method, (None, None))
+    if classifier is None or params is None:
+        raise ValueError(f'Classifier "{method}" is not implemented!')
+
     X = np.reshape(X, (X.shape[0], -1))
-    clf = GridSearchCV(knn, params, cv=5, scoring="accuracy")
+    clf = GridSearchCV(classifier, params, cv=5, scoring="accuracy")
     clf.fit(X, y)
-    df = pd.DataFrame(columns=["Accuracy", "N_neighbors", "Weights", "Metric"])
+    df = pd.DataFrame(columns=["Accuracy"]+ list(params.keys()))
     for i in range(len(clf.cv_results_["params"])):
-        df.loc[i] = [clf.cv_results_["mean_test_score"][i],
-                     clf.cv_results_["params"][i]["n_neighbors"],
-                     clf.cv_results_["params"][i]["weights"],
-                     clf.cv_results_["params"][i]["metric"]]
+        df.loc[i] = [clf.cv_results_["mean_test_score"][i]] + [clf.cv_results_["params"][i][param] for param in params]
     df = df.sort_values(by="Accuracy", ascending=False)
-    print(df.head())
+    print(f'Results for {method}:')
+    print(df.head(), end='\n\n')
 
 
 if __name__ == '__main__':
     X, y = load_data()
     print(X.shape)
     print(y.shape)
-    classify(X, y)
+    classify(X, y, 'knn')
+    classify(X, y, 'svc')
+    classify(X, y, 'random_forest')
