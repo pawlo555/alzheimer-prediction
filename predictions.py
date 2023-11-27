@@ -6,6 +6,8 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 
+import xgboost as xgb
+
 from utils import load_data
 
 
@@ -25,7 +27,12 @@ def classify(X: np.ndarray, y: np.ndarray, method: str = 'knn') -> None:
             "n_estimators": [50, 100, 150],
             "criterion": ["gini", "entropy"],
             "max_depth": [None, 10, 20, 30]
-        })
+        }),
+        'xgboost' : (xgb.XGBClassifier(objective='binary:logistic', eval_metric='logloss'), {
+            'max_depth': [5, 12, 20],
+            'learning_rate': [0.5, 0.4, 0.3],
+            'n_estimators': [100, 150, 200],
+        }),
     }
 
     classifier, params = classifiers.get(method, (None, None))
@@ -50,3 +57,6 @@ if __name__ == '__main__':
     classify(X, y, 'knn')
     classify(X, y, 'svc')
     classify(X, y, 'random_forest')
+    # Long calculations
+    classify(X, y, 'xgboost')
+    # END Long calculations
