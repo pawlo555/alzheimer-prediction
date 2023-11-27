@@ -9,7 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from utils import load_data
 
 
-def classify(X: np.ndarray, y: np.ndarray, method: str='knn')->None:
+def classify(X: np.ndarray, y: np.ndarray, method: str = 'knn') -> None:
     classifiers = {
         'knn': (KNeighborsClassifier(), {
             "n_neighbors": [5, 9, 11, 13, 15],
@@ -35,7 +35,7 @@ def classify(X: np.ndarray, y: np.ndarray, method: str='knn')->None:
     X = np.reshape(X, (X.shape[0], -1))
     clf = GridSearchCV(classifier, params, cv=5, scoring="accuracy")
     clf.fit(X, y)
-    df = pd.DataFrame(columns=["Accuracy"]+ list(params.keys()))
+    df = pd.DataFrame(columns=["Accuracy"] + list(params.keys()))
     for i in range(len(clf.cv_results_["params"])):
         df.loc[i] = [clf.cv_results_["mean_test_score"][i]] + [clf.cv_results_["params"][i][param] for param in params]
     df = df.sort_values(by="Accuracy", ascending=False)
