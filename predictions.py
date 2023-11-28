@@ -5,10 +5,17 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.decomposition import PCA
 
 import xgboost as xgb
 
 from utils import load_data
+
+
+def future_selection_PCA(X):
+    pca = PCA(n_components=0.95)
+    pca.fit_transform(X)
+    return X
 
 
 def classify(X: np.ndarray, y: np.ndarray, method: str = 'knn') -> None:
@@ -28,7 +35,7 @@ def classify(X: np.ndarray, y: np.ndarray, method: str = 'knn') -> None:
             "criterion": ["gini", "entropy"],
             "max_depth": [None, 10, 20, 30]
         }),
-        'xgboost' : (xgb.XGBClassifier(objective='binary:logistic', eval_metric='logloss'), {
+        'xgboost': (xgb.XGBClassifier(objective='binary:logistic', eval_metric='logloss'), {
             'max_depth': [5, 12, 20],
             'learning_rate': [0.5, 0.4, 0.3],
             'n_estimators': [100, 150, 200],
@@ -39,7 +46,10 @@ def classify(X: np.ndarray, y: np.ndarray, method: str = 'knn') -> None:
     if classifier is None or params is None:
         raise ValueError(f'Classifier "{method}" is not implemented!')
 
+
     X = np.reshape(X, (X.shape[0], -1))
+    X = future_selection_PCA(X)
+    print(X)
     clf = GridSearchCV(classifier, params, cv=5, scoring="accuracy")
     clf.fit(X, y)
     df = pd.DataFrame(columns=["Accuracy"] + list(params.keys()))
@@ -60,3 +70,4 @@ if __name__ == '__main__':
     # Long calculations
     classify(X, y, 'xgboost')
     # END Long calculations
+    # networkx.algorithms.efficiency.local_efficiency
