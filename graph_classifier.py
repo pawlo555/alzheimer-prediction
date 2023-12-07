@@ -17,7 +17,8 @@ class SimpleGNN(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
         super(SimpleGNN, self).__init__()
         self.conv1 = GCNConv(input_dim, hidden_dim)
-        self.conv2 = GCNConv(hidden_dim, output_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.conv3 = GCNConv(hidden_dim, output_dim)
         self.fc = nn.Linear(output_dim, 3)
 
     def forward(self, data):
@@ -27,6 +28,9 @@ class SimpleGNN(nn.Module):
         x = F.relu(x)
 
         x = self.conv2(x, edge_index)
+        x = F.relu(x)
+
+        x = self.conv3(x, edge_index)
         x = F.relu(x)
         x = global_add_pool(x, data.batch)
         return self.fc(x)
@@ -43,8 +47,9 @@ class CustomGraphDataset(InMemoryDataset):
     def _process_adjacency_matrix(self, adjacency_matrix, y):
         edge_index = adjacency_matrix.nonzero().t()
         edge_index = torch.stack((edge_index[0], edge_index[1]))
-        node_features = torch.arange(0, 90, 1, dtype=torch.float)  # Replace with your node features
-        node_features = node_features.unsqueeze(1)
+        node_features = torch.rand((90, 1), dtype=torch.float)  # Replace with your node features
+        #node_features = node_features.unsqueeze(1)
+        print(node_features.shape)
         return Data(x=node_features, edge_index=edge_index, y=y)
 
     def _process(self):
@@ -68,7 +73,7 @@ if __name__ == '__main__':
 
     # Node features (you can define your own node features)
     num_nodes = torch.tensor(X[0]).size(0)
-    node_features = torch.range(0, 89, 1)  # Random node features for demonstration
+    node_features = torch.rand(1)  # Random node features for demonstration
     node_features = node_features.unsqueeze(1)
     # Creating a PyTorch Geometric Data object
     data = Data(x=node_features, edge_index=edge_index)
@@ -89,15 +94,14 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=16)
 
     # Initialize the model
-    model = SimpleGNN(input_dim=1, hidden_dim=20, output_dim=30)  # Adjust dimensions as needed
+    model = SimpleGNN(input_dim=1, hidden_dim=40, output_dim=50)  # Adjust dimensions as needed
 
     # Define loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.0001)
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Training loop
-    num_epochs = 50
-    #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    num_epochs = 100
     device = "cpu"
     model.to(device)
 
@@ -130,7 +134,6 @@ if __name__ == '__main__':
                 _, predicted = torch.max(output, 1)
                 total += data.y.size(0)
                 correct += (predicted == data.y).sum().item()
-                #print(output, predicted)
 
         accuracy = correct / total * 100
         print(f"Test Accuracy: {accuracy:.2f}%")
