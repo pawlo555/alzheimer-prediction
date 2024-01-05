@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 from torch import optim
 from torch_geometric.nn import GCNConv, global_add_pool
 from torch_geometric.data import Data, InMemoryDataset
@@ -9,6 +10,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torch_geometric.loader import DataLoader
+from networkx.algorithms import efficiency
 
 from utils import load_data
 
@@ -40,6 +42,7 @@ class CustomGraphDataset(InMemoryDataset):
     def __init__(self, data_list, Y):
         super(CustomGraphDataset, self).__init__(".")
         self.data_list = data_list
+        self.N = data_list.shape[1]
         self.y = Y
         self._process()
         self.data, self.slices = self.collate(self.results)
@@ -47,10 +50,16 @@ class CustomGraphDataset(InMemoryDataset):
     def _process_adjacency_matrix(self, adjacency_matrix, y):
         edge_index = adjacency_matrix.nonzero().t()
         edge_index = torch.stack((edge_index[0], edge_index[1]))
-        node_features = torch.rand((90, 1), dtype=torch.float)  # Replace with your node features
-        #node_features = node_features.unsqueeze(1)
-        print(node_features.shape)
-        return Data(x=node_features, edge_index=edge_index, y=y)
+        G = nx.from_numpy_array(adjacency_matrix.detach().numpy())
+        features = np.zeros((self.N, self.N))
+        for i in range(self.N-1):
+            for j in range(i+1, self.N-1):
+                nodes_efficiency = efficiency(G, i, j)
+                features[i, j] = nodes_efficiency
+                features[j, i] = nodes_efficiency
+        features = torch.tensor(features, dtype=torch.float)
+
+        return Data(x=features, edge_index=edge_index, y=y)
 
     def _process(self):
         self.results = []
@@ -58,12 +67,18 @@ class CustomGraphDataset(InMemoryDataset):
             graph_data = self._process_adjacency_matrix(torch.tensor(adj_matrix), self.y[i])
             self.results.append(graph_data)
 
-# Creating an instance of the custom dataset
+
+# change slithly values to prevent overfitting and ensure better generalization of network
+def change_random_bits(tensor, probability):
+    mask = torch.empty_like(tensor).uniform_(0, 1)
+    change = torch.empty_like(tensor).uniform_(0, 0.25)
+    mask = mask > probability
+    flipped_tensor = torch.where(mask, tensor+change, tensor)
+    return flipped_tensor
 
 
 if __name__ == '__main__':
     X, y = load_data()
-
     custom_dataset = CustomGraphDataset(data_list=X, Y=y)  # Pass your actual data_list here
 
     # Create edge indices from the adjacency matrix
@@ -91,19 +106,29 @@ if __name__ == '__main__':
 
     # Define DataLoader for batching
     train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=16)
+    test_loader = DataLoader(test_dataset, batch_size=1)
 
     # Initialize the model
-    model = SimpleGNN(input_dim=1, hidden_dim=40, output_dim=50)  # Adjust dimensions as needed
+    model = SimpleGNN(input_dim=90, hidden_dim=180, output_dim=120)  # Adjust dimensions as needed
 
     # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    class_probabilities = torch.tensor([np.sum(y == 0), np.sum(y == 1), np.sum(y == 2)])
+    # Convert probabilities to weights (assuming a balanced loss if probabilities not given)
+    class_weights = 1 / class_probabilities
+
+    # Normalize weights to sum up to the number of classes
+    class_weights = class_weights / class_weights.sum()
+
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    optimizer = optim.AdamW(model.parameters(), lr=0.0001)
 
     # Training loop
-    num_epochs = 100
+    num_epochs = 400
     device = "cpu"
     model.to(device)
+
+    train_losses = []
+    test_acc = []
 
     for epoch in range(num_epochs):
         model.train()
@@ -111,6 +136,7 @@ if __name__ == '__main__':
         for data in tqdm(train_loader, desc=f'Epoch {epoch + 1}/{num_epochs}', leave=False):
             data = data.to(device)
             data.y = torch.tensor(data.y, dtype=torch.long)
+            data.x = change_random_bits(data.x, probability=0.1)
             optimizer.zero_grad()
             output = model(data)
             loss = criterion(output, data.y)  # Assuming the dataset has graph labels (data.y)
@@ -120,6 +146,7 @@ if __name__ == '__main__':
 
         epoch_loss = running_loss / len(train_dataset)
         print(f"Epoch {epoch + 1}/{num_epochs} - Loss: {epoch_loss:.4f}")
+        train_losses.append(epoch_loss)
 
         # Evaluate on the test set
         model.eval()
@@ -136,4 +163,25 @@ if __name__ == '__main__':
                 correct += (predicted == data.y).sum().item()
 
         accuracy = correct / total * 100
+        test_acc.append(accuracy)
         print(f"Test Accuracy: {accuracy:.2f}%")
+
+    fig, ax1 = plt.subplots()
+    t = np.arange(1, num_epochs+1, 1)
+    ax1.plot(t, train_losses, label="Loss", color="b")
+    ax1.set_xlabel('Epoch')
+    # Make the y-axis label, ticks and tick labels match the line color.
+    ax1.set_ylabel('Train loss', color='b')
+    ax1.tick_params("y", colors="b")
+
+    ax2 = ax1.twinx()
+    ax2.plot(t, test_acc, label="Acc", color="r")
+    ax2.set_ylabel('Test Accuracy [%]', color="r")
+    ax2.tick_params("y", colors="r")
+
+    plt.title("Traing of prediction model")
+    fig.tight_layout()
+
+    plt.savefig("training.png")
+    plt.show()
+
